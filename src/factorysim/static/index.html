@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Factory Sim</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <h1>AI Factory Sim</h1>
+    <span class="sub">Grid power in, tokens out. Unofficial model of a DSX-style site.</span>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="operate" aria-selected="true">Operate</button>
+    <button role="tab" data-tab="compare" aria-selected="false">Compare hardware</button>
+    <button role="tab" data-tab="learn" aria-selected="false">How it maps to DSX</button>
+  </nav>
+  <div class="simbar">
+    <span id="clock" class="clock">Day 1 08:00</span>
+    <div class="seg" id="speed" aria-label="Simulation speed">
+      <button data-dt="1">Slow</button><button data-dt="2" class="on">Normal</button><button data-dt="10">Fast</button>
+    </div>
+    <button id="pause" class="btn">Pause</button>
+    <span id="busstat" class="busstat" title="DSX Exchange event bus"></span>
+    <button id="theme" class="btn ghost" title="Switch light and dark">Theme</button>
+  </div>
+</header>
+
+<main id="tab-operate" class="operate">
+  <aside class="rail">
+    <section>
+      <h2>Hardware</h2>
+      <div class="seg wrap" id="platform"></div>
+      <p class="hint" id="platform-note"></p>
+    </section>
+    <section>
+      <h2>Site</h2>
+      <label class="ctl">Grid connection <output id="o-site_mw"></output>
+        <input type="range" id="site_mw" min="1" max="50" step="1"></label>
+      <label class="ctl">Climate
+        <select id="climate"></select></label>
+      <label class="ctl">Supply water temperature <output id="o-supply_c"></output>
+        <input type="range" id="supply_c" min="18" max="45" step="1"></label>
+      <label class="ctl">Battery storage <output id="o-bess_mwh"></output>
+        <input type="range" id="bess_mwh" min="0" max="20" step="1"></label>
+      <label class="ctl">Electricity price <output id="o-price_usd_mwh"></output>
+        <input type="range" id="price_usd_mwh" min="20" max="200" step="5"></label>
+    </section>
+    <section>
+      <h2>Power policy</h2>
+      <div class="seg" id="policy">
+        <button data-v="maxp">MaxP</button><button data-v="maxq">MaxQ</button><button data-v="maxlps">MaxLPS</button>
+      </div>
+      <p class="hint" id="policy-note"></p>
+      <label class="ctl" id="oversub-wrap">Racks installed vs MaxP sizing <output id="o-oversubscription"></output>
+        <input type="range" id="oversubscription" min="1" max="1.6" step="0.05"></label>
+    </section>
+    <section>
+      <h2>Workload</h2>
+      <label class="ctl">Racks serving inference <output id="o-inference_share"></output>
+        <input type="range" id="inference_share" min="0" max="1" step="0.05"></label>
+      <label class="ctl">Inference demand <output id="o-demand"></output>
+        <input type="range" id="demand" min="0.1" max="1.2" step="0.05"></label>
+      <label class="ctl">Credit for vendor speedup claims <output id="o-claim_credit"></output>
+        <input type="range" id="claim_credit" min="0" max="1" step="0.05"></label>
+      <p class="hint">0% compares chips by peak compute from NVIDIA's spec tables. 100% takes NVIDIA's full-stack speedup claims at face value.</p>
+    </section>
+  </aside>
+
+  <div class="main">
+    <section class="events">
+      <span class="ev-label">Make something happen</span>
+      <button class="btn" data-act="target" data-frac="0.75">Grid asks for 75%</button>
+      <button class="btn" data-act="target" data-frac="0.4">Grid asks for 40%</button>
+      <button class="btn" data-act="fault" data-kind="pump_failure">CDU pump fails</button>
+      <button class="btn" data-act="fault" data-kind="leak">Coolant leak</button>
+      <button class="btn" data-act="fault" data-kind="heat_wave">Heat wave</button>
+      <button class="btn" data-act="fault" data-kind="demand_surge">Demand surge</button>
+      <button class="btn ghost" data-act="reset">Reset</button>
+    </section>
+    <section class="kpis" id="kpis"></section>
+    <p class="status" id="status"></p>
+
+    <section class="card">
+      <div class="card-head"><h3>Inputs and outputs</h3><span class="muted">What crosses the fence line right now</span></div>
+      <div class="flow" id="flow"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h3>Where the grid connection goes</h3><span class="muted" id="power-sub"></span></div>
+      <div class="stack-wrap"><div class="stack" id="stack"></div><div class="limit-mark" id="limit-mark" hidden></div></div>
+      <div class="legend" id="stack-legend"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h3>Compute hall</h3><span class="muted" id="hall-sub"></span></div>
+      <div class="hall" id="hall"></div>
+      <div class="legend hall-legend">
+        <span class="ramp"><i id="ramp"></i> Rack power: idle to MaxP</span>
+        <span><i class="st st-throttled"></i> Throttled (low coolant flow)</span>
+        <span><i class="st st-suspended"></i> Suspended</span>
+        <span><i class="st st-isolated"></i> Isolated (leak)</span>
+      </div>
+    </section>
+
+    <div class="charts">
+      <section class="card"><div class="card-head"><h3>Grid draw</h3><span class="muted">MW, against the limit in force</span></div>
+        <div class="legend"><span><i class="sw s1"></i> Grid draw</span><span><i class="sw ref"></i> Limit</span></div>
+        <div class="chart" id="c-power"></div></section>
+      <section class="card"><div class="card-head"><h3>Tokens</h3><span class="muted">Million tokens per second</span></div>
+        <div class="legend"><span><i class="sw s1"></i> Served</span><span><i class="sw s2"></i> Requested</span></div>
+        <div class="chart" id="c-tokens"></div></section>
+      <section class="card"><div class="card-head"><h3>PUE</h3><span class="muted">Site power divided by IT power</span></div>
+        <div class="chart" id="c-pue"></div></section>
+      <section class="card"><div class="card-head"><h3>Outdoor temperature</h3><span class="muted">°C</span></div>
+        <div class="chart" id="c-ambient"></div></section>
+    </div>
+
+    <div class="feeds">
+      <section class="card">
+        <div class="card-head"><h3>Operator log</h3><span class="muted">What happened, in plain words</span></div>
+        <ol class="log" id="log"></ol>
+      </section>
+      <section class="card">
+        <div class="card-head"><h3>Event bus</h3><span class="muted">DSX Exchange messages. Click one to see the payload.</span></div>
+        <ol class="bus" id="bus"></ol>
+      </section>
+    </div>
+  </div>
+</main>
+
+<main id="tab-compare" class="page" hidden>
+  <p class="lede" id="cmp-lede"></p>
+  <div class="cmp-grid" id="cmp-charts"></div>
+  <section class="card">
+    <div class="card-head"><h3>Same hardware, three ways to size the site</h3><span class="muted" id="pol-sub"></span></div>
+    <div class="cmp-grid two" id="pol-charts"></div>
+    <p class="hint">NVIDIA's public MaxLPS example (Vera Rubin, 1 MW, PUE 1.1): up to 40% more GPUs in the same power envelope and 1.35x the tokens. The curve in this model is fitted to that one data point.</p>
+  </section>
+  <section class="card">
+    <div class="card-head"><h3>Results table</h3><span class="muted">Steady state: average weather, sold-out inference</span></div>
+    <div class="table-wrap"><table id="cmp-table"></table></div>
+  </section>
+  <section class="card">
+    <div class="card-head"><h3>What the model assumes about each system</h3><span class="muted">Every number is tagged with where it came from</span></div>
+    <div class="table-wrap"><table id="spec-table"></table></div>
+    <p class="hint"><b>official</b> NVIDIA or OEM spec sheet · <b>reported</b> press or analyst, unconfirmed · <b>derived</b> computed from the above · <b>assumed</b> my assumption</p>
+  </section>
+</main>
+
+<main id="tab-learn" class="page" hidden>
+  <p class="lede">DSX is NVIDIA's playbook for building and running AI factories. Each part of this dashboard stands in for one piece of it.</p>
+  <div class="learn" id="learn"></div>
+</main>
+
+<div class="tip" id="tip" hidden></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

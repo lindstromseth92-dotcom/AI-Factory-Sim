@@ -1,0 +1,112 @@
+# Hardware catalog.
+#
+# Every number carries a `basis` tag so you can tell what is solid and what is not:
+#   official  - published by NVIDIA or an OEM spec sheet
+#   reported  - secondary source (analyst, press, colo guide); not confirmed by NVIDIA
+#   derived   - computed here from official/reported numbers (math shown in docs/MODEL.md)
+#   assumed   - my assumption; change it if you know better
+#
+# Performance is an index relative to one H100 = 1.0.
+#   compute: ratio of per-GPU peak compute from NVIDIA's own spec tables
+#   claim:   NVIDIA's published full-stack speedup claim, compounded across generations
+# The dashboard's "vendor claim credit" slider blends between the two (geometric).
+
+reference:
+  # Aggregate output tokens/s from one H100 serving the reference LLM with batching.
+  # Pure anchor for absolute numbers. All comparisons are ratios and do not depend on it.
+  h100_tokens_per_sec: {value: 1000, basis: assumed}
+  # Fraction of MaxP rack power drawn at zero utilization.
+  idle_power_fraction: {value: 0.30, basis: assumed}
+  # perf(cap) = 1 - k * (1 - cap)^2, cap = power limit as a fraction of MaxP.
+  # Inference k is fitted to NVIDIA's one public MaxLPS data point
+  # (1.4x GPUs at the same site power -> 1.35x tokens, Vera Rubin, 1 MW, PUE 1.1).
+  power_cap_curve:
+    inference_k: {value: 0.44, basis: derived}
+    training_k: {value: 1.00, basis: assumed}
+    min_cap: {value: 0.50, basis: assumed}
+
+platforms:
+  hgx_h100:
+    name: HGX H100
+    short: H100
+    generation: Hopper (2022)
+    cooling: air
+    gpus_per_rack: {value: 32, basis: assumed, note: "4 x 8-GPU servers per rack"}
+    rack_kw_maxp: {value: 41, basis: derived, note: "4 x 10.2 kW DGX H100 max"}
+    maxq_fraction: {value: 0.83, basis: assumed}
+    liquid_fraction: {value: 0.0, basis: official}
+    max_supply_c: {value: 27, basis: official, note: "ASHRAE recommended air inlet; chilled water runs ~18 C to hold it"}
+    return_limit_c: {value: 40, basis: assumed}
+    gpu_memory_gb: {value: 80, basis: official}
+    perf:
+      inference: {compute: 1.0, claim: 1.0}
+      training: {compute: 1.0, claim: 1.0}
+    rack_capex_usd_m: {value: 1.2, basis: reported}
+  gb200_nvl72:
+    name: GB200 NVL72
+    short: GB200
+    generation: Blackwell (2024)
+    cooling: liquid
+    gpus_per_rack: {value: 72, basis: official}
+    rack_kw_maxp: {value: 120, basis: official, note: "NVIDIA user guide: about 120 kW"}
+    maxq_fraction: {value: 0.83, basis: assumed}
+    liquid_fraction: {value: 0.90, basis: reported, note: "NVIDIA GTC 2025: 90 plus percent liquid cooled"}
+    max_supply_c: {value: 45, basis: reported}
+    return_limit_c: {value: 56, basis: derived, note: "back-solved from Lenovo GB300 flow table"}
+    gpu_memory_gb: {value: 186, basis: official}
+    perf:
+      inference: {compute: 5.0, claim: 30.0, note: "20 vs 4 PFLOPS per GPU; NVIDIA claim: 30x real-time LLM inference vs same number of H100"}
+      training: {compute: 2.5, claim: 4.0, note: "10 vs 4 PFLOPS FP8; NVIDIA claim: 4x training"}
+    rack_capex_usd_m: {value: 3.0, basis: reported}
+  gb300_nvl72:
+    name: GB300 NVL72
+    short: GB300
+    generation: Blackwell Ultra (2025)
+    cooling: liquid
+    gpus_per_rack: {value: 72, basis: official}
+    rack_kw_maxp: {value: 142, basis: official, note: "NVIDIA reference architecture max; OEM nominal 132-135 kW"}
+    maxq_fraction: {value: 0.83, basis: assumed}
+    liquid_fraction: {value: 0.90, basis: reported, note: "Lenovo planning figure"}
+    max_supply_c: {value: 45, basis: official, note: "Lenovo user guide: 25-45 C supply"}
+    return_limit_c: {value: 56, basis: derived, note: "Lenovo: 59 LPM at 25 C to 177 LPM at 45 C for ~122 kW liquid heat"}
+    gpu_memory_gb: {value: 278, basis: official}
+    perf:
+      inference: {compute: 7.5, claim: 45.0, note: "1.5x GB200 dense FP4; NVIDIA claim: 1.5x GB200"}
+      training: {compute: 3.75, claim: 6.0}
+    rack_capex_usd_m: {value: 3.7, basis: reported}
+  vera_rubin_nvl72:
+    name: Vera Rubin NVL72
+    short: Vera Rubin
+    generation: Rubin (2026)
+    cooling: liquid
+    gpus_per_rack: {value: 72, basis: official}
+    rack_kw_maxp: {value: 230, basis: reported, note: "~190 kW MaxQ / ~230 kW MaxP; matches NVIDIA's 400 GPUs per MW MaxLPS example"}
+    maxq_fraction: {value: 0.826, basis: reported, note: "190 / 230"}
+    liquid_fraction: {value: 1.0, basis: reported}
+    max_supply_c: {value: 45, basis: official}
+    return_limit_c: {value: 60, basis: assumed}
+    gpu_memory_gb: {value: 288, basis: official}
+    perf:
+      inference: {compute: 25.0, claim: 475.0, note: "50 vs 10 PFLOPS dense FP4 per GPU = 5x GB200; NVIDIA claim: 10x tokens per MW vs Blackwell, i.e. ~15.8x per rack at 190 vs 120 kW"}
+      training: {compute: 8.75, claim: 16.0, note: "35 vs 10 PFLOPS = 3.5x GB200; NVIDIA claim: one quarter the GPUs to train a 10T MoE"}
+    rack_capex_usd_m: {value: 6.0, basis: reported, note: "press estimates $5-7M"}
+
+climates:
+  cool: {name: "Cool (Nordics)", mean_c: 8, swing_c: 5, design_c: 26}
+  temperate: {name: "Temperate (N. Virginia)", mean_c: 16, swing_c: 6, design_c: 35}
+  hot: {name: "Hot desert (Phoenix)", mean_c: 28, swing_c: 8, design_c: 46}
+
+facility:
+  distribution_loss: {value: 0.04, basis: assumed, note: "transformers, UPS, busway"}
+  misc_load: {value: 0.01, basis: assumed, note: "lighting, controls, offices; fraction of IT"}
+  network_storage_overhead: {value: 0.05, basis: assumed, note: "non-GPU IT load as a fraction of GPU rack power"}
+  dry_cooler_approach_c: {value: 8, basis: assumed}
+  dry_cooler_overhead: {value: 0.025, basis: assumed, note: "fan power per unit heat rejected"}
+  chiller_carnot_fraction: {value: 0.5, basis: assumed}
+  air_supply_water_c: {value: 18, basis: assumed, note: "chilled water temperature needed to serve air-cooled heat"}
+  crah_fan_overhead: {value: 0.06, basis: assumed, note: "air handler fan power per unit air-side heat"}
+  pump_efficiency: {value: 0.6, basis: assumed}
+  loop_pressure_multiplier: {value: 3.0, basis: assumed, note: "whole secondary loop vs rack-only pressure drop"}
+  facility_capex_usd_m_per_mw: {value: 11, basis: reported}
+  it_amortization_years: {value: 5, basis: assumed}
+  facility_amortization_years: {value: 15, basis: assumed}
